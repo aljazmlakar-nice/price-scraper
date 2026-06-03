@@ -42,9 +42,9 @@ async function scrapePage(url) {
   const page = await context.newPage();
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    // Wait a bit for JS prices to render
-    await page.waitForTimeout(2500);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 35000 });
+    // Wait for JS prices to render (ZooRoyal etc need longer)
+    await page.waitForTimeout(4500);
 
     // Accept cookie banners if present (common German/Austrian buttons)
     const cookieButtons = ['Alle akzeptieren', 'Akzeptieren', 'Alle Cookies akzeptieren', 'Zustimmen', 'Accept all', 'Einverstanden'];
@@ -107,18 +107,30 @@ async function scrapePage(url) {
       }
     }
 
-    // 4) Shipping - look in body text
+    // 4) Shipping - look in body text. Be conservative: shipping for these
+    // bulky goods is typically 20-80 €. We reject values close to the product
+    // price (those are mis-matches) and values outside a sane shipping range.
     if (shippingNum === null) {
       const bodyText = await page.evaluate(() => document.body.innerText).catch(() => '');
       const patterns = [
-        /Sperrgut[^\d]{0,80}?(\d+[,.]\d{2})\s*€/i,
-        /Speditionsversand[^\d]{0,80}?(\d+[,.]\d{2})\s*€/i,
-        /Versandkosten[^\d]{0,30}?(\d+[,.]\d{2})\s*€/i,
-        /zzgl\.?\s*(\d+[,.]\d{2})\s*€\s*Versand/i,
+        /Versandkosten\s*(?:von|:|betragen|in H\u00f6he von)?\s*(\d{1,3}[,.]\d{2})\s*€/i,
+        /zzgl\.?\s*(\d{1,3}[,.]\d{2})\s*€\s*(?:Versand|Sperrgut|Speditions)/i,
+        /(?:Sperrgut|Speditionsversand|Speditionskosten)[^\d]{0,40}?(\d{1,3}[,.]\d{2})\s*€/i,
+        /Versand\s*ab\s*(\d{1,3}[,.]\d{2})\s*€/i,
       ];
       for (const p of patterns) {
         const m = bodyText.match(p);
-        if (m) { const n = parseFloat(m[1].replace(',', '.')); if (n >= 0 && n < 500) { shippingNum = n; break; } }
+        if (m) {
+          const n = parseFloat(m[1].replace(',', '.'));
+          // Sane shipping range, and must be clearly less than product price
+          if (n >= 0 && n <= 150 && (priceNum === null || n < priceNum * 0.5)) {
+            shippingNum = n; break;
+          }
+        }
+      }
+      // Explicit free shipping phrases (only trust near "Versand" word)
+      if (shippingNum === null && /versandkostenfrei|kostenloser\s+versand|gratisversand/i.test(bodyText)) {
+        shippingNum = 0;
       }
     }
 
