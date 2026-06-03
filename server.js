@@ -132,9 +132,22 @@ async function scrapePage(url) {
   }
 }
 
+// Auth middleware - checks secret key
+const SECRET = process.env.SCRAPER_SECRET || '';
+function checkAuth(req, res) {
+  if (!SECRET) return true; // no secret set = open (not recommended)
+  const provided = req.headers['x-scraper-key'] || req.body?.key;
+  if (provided !== SECRET) {
+    res.status(401).json({ error: 'Nepooblaščen dostop' });
+    return false;
+  }
+  return true;
+}
+
 app.get('/', (req, res) => res.json({ status: 'ok', service: 'price-scraper' }));
 
 app.post('/scrape', async (req, res) => {
+  if (!checkAuth(req, res)) return;
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'Manjka URL' });
   const result = await scrapePage(url);
@@ -142,6 +155,7 @@ app.post('/scrape', async (req, res) => {
 });
 
 app.post('/scrape-many', async (req, res) => {
+  if (!checkAuth(req, res)) return;
   const { urls } = req.body; // { key: url }
   if (!urls) return res.status(400).json({ error: 'Manjkajo URL-ji' });
 
